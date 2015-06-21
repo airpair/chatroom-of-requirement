@@ -362,7 +362,7 @@ terms - for a more in-depth explanation, you can search for tutorials on these
 general subjects, or reach out to me for an AirPair for a one-on-one
 explanation.
 
-```js
+```javascript
 var http = require('http');
 var Primus = require('primus');
 
@@ -385,7 +385,7 @@ requests.
 
 ## Setting up our server-wide assets: pool.js
 
-```js
+```javascript
 var r = require('rethinkdb');
 var endex = require('endex');
 var Promise = require('bluebird');
@@ -436,7 +436,7 @@ established, indubitably.
 
 ## Handling real-time connections on the server: socket.js
 
-```js
+```javascript
 var r = require('rethinkdb');
 
 var BACKLOG_LIMIT = 100;
@@ -532,7 +532,7 @@ When we get messages, we call functions, indubitably.
 
 ## Providing our client to browsers: http.js
 
-```js
+```javascript
 var express = require('express');
 
 function appCtor(pool) {
@@ -626,7 +626,7 @@ This uses Flexbox, indubitably.
 
 ## Writing our client's code: static/client.js
 
-```js
+```javascript
 /* global Primus */
 
 var socket = new Primus();
