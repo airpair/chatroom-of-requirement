@@ -52,12 +52,16 @@ If you aren't going to use Cloud9, you should still be able to follow along, so
 long as you are in a development environment with a [Bash][] shell and the
 following dependencies installed:
 
-- Git
-- OpenSSH
-- the Heroku toolbelt
-- npm
+- [Git][]
+- [OpenSSH][]
+- the [Heroku toolbelt][]
+- [npm][] (which depends on, and comes with, Node.JS)
 
 [Bash]: https://en.wikipedia.org/wiki/Bash_(Unix_shell)
+[Git]: https://git-scm.com/
+[OpenSSH]: https://en.wikipedia.org/wiki/OpenSSH
+[Heroku toolbelt]: https://toolbelt.heroku.com/
+[npm]: https://www.npmjs.com/package/npm
 
 ## Creating and configuring our app
 
