@@ -712,6 +712,7 @@ and the other tutorials from [RethinkDB's documentation][].
 
 [Passwordless]: https://passwordless.net/
 [IRC]: https://en.wikipedia.org/wiki/Internet_Relay_Chat_services
+[RethinkDB's documentation]: http://rethinkdb.com/docs/
 
 Using the power of RethinkDB, you can go on to extend this clasic chat model to
 use more complex queries: in fact, that's the notion we're working on to create
