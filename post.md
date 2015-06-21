@@ -164,7 +164,7 @@ instantiate an SSH tunnel for the lifetime of our app:
 
 [rethinkdb-3158]: https://github.com/rethinkdb/rethinkdb/issues/3158
 
-```bash
+```bash,linenums=true
 DYNO=${DYNO##*.}
 DYNO=${DYNO:-$RANDOM}
 
@@ -338,6 +338,12 @@ I described `rethinkdb`, `engine.io`, and `primus` above. Of the other four,
 simplifying our database initialization, and `bluebird` is used for
 constructing our own async promises.
 
+(Note that you may have to specify `rethinkdb@2.0.0` in the `npm install`
+command arguments, due to
+[an issue with the RethinkDB driver's release numbering][rethinkdb#4436].)
+
+[rethinkdb#4436]: https://github.com/rethinkdb/rethinkdb/issues/4436
+
 We will create seven files:
 
 - server.js
@@ -351,22 +357,50 @@ We will create seven files:
 The first four files are for running our app's back-end server, while the last
 three files define our app's front-end client. There's nothing saying you
 *have* to lay an app out like this, but it allows for a relatively neat base
-of separated concerns on which to build upon as the apps complexity grows.
+of separated concerns, on which to build upon as the app's complexity grows.
+
+## What our app will look like
+
+The app we're constructing presents a simple chat interface with four elements:
+
+- A freeform room name, which all messages are associated with
+- A scroll of messages that have been sent associated with the room name
+- A username to associate sent messages with
+- A field to compose and send messages from
+
+I'm titling it the Chatroom of Requirement, after the [Room of Requirement][]
+in the [Harry Potter][] books, which magically transforms into whatever room
+you need it to be just by thinking of it.
+
+[Room of Requirement]: http://harrypotter.wikia.com/wiki/Room_of_Requirement
+[Harry Potter]: http://harrypotter.wikia.com/wiki/Main_Page
+
+Of course, this design is far from a comprehensive chat client: it's very
+sparingly styled, and it lacks any kind of anti-spam, moderation,
+authentication or ownership mechanisms (which all sufficiently complex chat
+services [eventually grow to need][IRC]). However, this is sufficiently useful
+for private use, where any user who knows of the server can be trusted 
+[(much like the Room of Requirement itself)][Protection]. This minimal design
+also helps keep the amount of code not necessary to demonstrate what's needed
+to implement a real-time chat app with these technologies to a minimum.
+
+[IRC]: https://en.wikipedia.org/wiki/Internet_Relay_Chat_services
+[Protection]: http://harrypotter.wikia.com/wiki/Room_of_Requirement#Protection
+
+Introducing the extended features one may wish for in a more full-featured chat
+application is left as an exercise for the reader: I recommend looking into [Passwordless][] and the other tutorials from [RethinkDB's documentation][]
+for inspiration and guidance as to where and how to proceed.
+
+[Passwordless]: https://passwordless.net/
+[RethinkDB's documentation]: http://rethinkdb.com/docs/
 
 ## The Node server's entrypoint: server.js
 
 Once `tunnel-and-serve.js` has instantiated our connection to RethinkDB, we
-enter our app server proper at `server.js`. This script will tie together
-the other components of our app.
+enter our app server proper at `server.js`. This script ties together
+the other components of our app:
 
-(At this point, we're dealing with fairly ordinary Node modules and JavaScript
-promises, rather than the arcane arts of SSH tunnels and Bash scripting, so
-I'll be breaking down the structure of the scripts in slightly more broad
-terms - for a more in-depth explanation, you can search for tutorials on these
-general subjects, or reach out to me for an AirPair for a one-on-one
-explanation.
-
-```javascript
+```javascript,linenums=true
 var http = require('http');
 var Primus = require('primus');
 
@@ -381,11 +415,53 @@ var socketServer = new Primus(httpServer, {transformer: 'engine.io'});
 socketServer.on('connection', appSocket);
 ```
 
-This ties components of the server together, indubitably.
+### Running the component constructor modules
 
-Anything that uses WebSockets has to go around the HTTP server due to an
-indubitably odd shortcoming of the way Node's `http` module handles upgrade
-requests.
+```javascript
+var pool = require('./pool.js')();
+var appHttp = require('./http.js')(pool);
+var appSocket= require('./socket.js')(pool);
+```
+
+Each of our `pool.js`, `http.js`, and `socket.js` modules export a function
+that constructs the component of the server that they provide (the shared
+resources, HTTP server, and WebSocket (or WebSocket-like) connection handler,
+respectively). We call these functions to construct an instance of each of
+these components: first `pool.js` to establish our pool of connections (ie.
+the connection to our RethinkDB database, which could be expanded with further
+development to use connections to multiple nodes), then `http.js` and
+`socket.js`, using this pool of connections, to construct the callback
+functions we use for our HTTP and socket servers.
+
+### Creating and starting the server
+
+```javascript
+var httpServer=require('http').createServer(appHttp);
+httpServer.listen(process.env.PORT || 5000, process.env.IP || '0.0.0.0');
+
+var socketServer = new Primus(httpServer, {transformer: 'engine.io'});
+socketServer.on('connection', appSocket);
+```
+
+This creates an HTTP server using the callback app function we returned from
+the constructor function defined in `http.js`, listening on the port defined
+by the `PORT` environment variable (used by Heroku), and on the interface
+defined by the `IP` variable (used in conjunction with the `PORT` variable by
+Cloud9's "server preview" functionality). If no `PORT` is defined, we default
+to port 5000 (a commonly-used port for previewing servers in development), and if no `IP` variable is defined, we use `0.0.0.0` to listen on all available network interfaces (as is the default when the second argument to `httpServer.listen`
+is not defined).
+
+Then, we pass our newly-created [Node HTTP server][] to the Primus constructor,
+telling it to use `engine.io` as its 
+
+[Node HTTP server]: https://nodejs.org/api/http.html#http_class_http_server
+
+Ideally, it would be possible to handle all of this inside our HTTP app
+constructor, including engine.io/Primus's handlers as middleware, but, due to
+[a shortcoming of Node's API for handling HTTP upgrade requests][node#4813], we
+have to pass in our entire HTTP server to the `Primus` constructor.
+
+[node#4813]: https://github.com/joyent/node/issues/4813
 
 ## Setting up our server-wide assets: pool.js
 
@@ -705,16 +781,6 @@ mechanisms upgraded as support is detected by engine.io, indubitably.
 We get elements and hook them up to events, indubitably.
 
 ## Conclusion
-
-This isn't perfect, of course: for one thing, it's lacking any kind of
-authentication or ownership mechanisms (which all sufficiently complex chat
-services [eventually grow to need][IRC]). Introducing these extended features is
-left as an exercise for the reader: I recommend looking into [Passwordless][]
-and the other tutorials from [RethinkDB's documentation][].
-
-[Passwordless]: https://passwordless.net/
-[IRC]: https://en.wikipedia.org/wiki/Internet_Relay_Chat_services
-[RethinkDB's documentation]: http://rethinkdb.com/docs/
 
 Using the power of RethinkDB, you can go on to extend this clasic chat model to
 use more complex queries: in fact, that's the notion we're working on to create
