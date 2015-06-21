@@ -471,6 +471,12 @@ have to pass in our entire HTTP server to the `Primus` constructor.
 
 ## Setting up our server-wide assets: pool.js
 
+This script creates a `pool` object that acts as a sort of global environment
+for sharing assets across the different components of our server (since we're
+defining these components in the form of Node modules which are otherwise
+encapsulated, not sharing a global state). It also handles the initialization
+of these assets, establishing the connections and ensuring they are ready.
+
 ```javascript
 var r = require('rethinkdb');
 var endex = require('endex');
@@ -486,21 +492,21 @@ module.exports = function poolCtor() {
     return query.run(conn);
   }
 
-  var connPromise = r.connect().then(function(connection) {
-    conn = connection;
-    pool.runQuery = runQueryNormally;
+  var connPromise = r.connect().then(function (connection) {
     return endex(r).db('chatror')
       .table('messages')
         .index('room')
         .index('sent')
       .run(connection);
+  }).then(function (connection) {
+    conn = connection;
+    pool.runQuery = runQueryNormally;
   }).catch(serverReportError);
 
   pool.runQuery = function queueQueryRun(query) {
-    return new Promise(function(resolve, reject) {
-      connPromise.then(function(conn){
+    return new Promise(function (resolve, reject) {
+      connPromise.then(function () {
         query.run(conn).then(resolve, reject);
-        return conn;
       });
     });
   };
@@ -509,16 +515,98 @@ module.exports = function poolCtor() {
 };
 ```
 
-This script creates a `pool` object that acts as a sort of global environment
-for sharing assets across the different components of our server (since we're
-defining these components in the form of Node modules which are otherwise
-encapsulated, not sharing a global state). It also handles the initialization
-of these assets, establishing the connections and ensuring they are ready.
+### Establishing our interface / internals
 
-The `endex` module initializes, indubitably.
+```javascript
+module.exports = function poolCtor() {
+  var pool = {};
+  var serverReportError = console.error.bind(console);
 
-`runQuery` handles requests that may be made before the connection is
-established, indubitably.
+  var conn;
+```
+
+This sets up our module's exported constructor function (which gets imported as
+the return value from calling `require('./pool.js')` in `server.js`) to
+construct a plain object (`pool`), to which we attach the interfaces for any
+resources that may be shared across the components of our server.
+
+The `serverReportError` function is used to catch any errors that may be thrown
+in a promise's asynchronous execution and log them to the server's error log,
+without bringing down the whole server.
+
+The `conn` variable is where we will internally keep our connection to the
+RethinkDB server, once it is established.
+
+In the next section of code, we will add the `pool.runQuery` function to this
+pool object, which is used in the socket handler for interacting with our
+database.
+
+### Establishing /initializing the database connection and handling queries
+
+```javascript
+  function runQueryNormally(query) {
+    return query.run(conn);
+  }
+```
+
+This defines the simple, straightforward function that will be used to run
+queries once the connection to the RethinkDB database has been established.
+
+However, this can only be used once the connection has been established:
+trying to run a query before the connection is established would result in the
+query failing. To work around this, we provide a more complicated function for
+chaining requests to be executed after the connection is established and its
+promise resolves:
+
+```javascript
+  var connPromise = r.connect().then(function (connection) {
+    return endex(r).db('chatror')
+      .table('messages')
+        .index('room')
+        .index('sent')
+      .run(connection);
+  }).then(function (connection) {
+    conn = connection;
+    pool.runQuery = runQueryNormally;
+  }).catch(serverReportError);
+```
+
+This is where we actually initialize our connection to our RethinkDB server.
+Once the connection is established, we use the [endex][] module to construct a
+complex branching ReQL query that will ensure that all the tables and secondary
+indexes we need for our app to work exist before we begin running queries
+against them, then run that query on the connection. (This also sets our
+connection to use, and create if not already created, a database named
+`'chatror'`.)
+
+[endex]: https://github.com/stuartpb/endex
+
+After the database structure is ensured, we save the connection in the `conn`
+variable so that it can be used by the straightforward `runQueryNormally`
+implementation of `pool.runQuery`, which then replaces the more complex
+queueing implementation the pool was initialized with (defined below).
+
+```javascript
+  pool.runQuery = function queueQueryRun(query) {
+    return new Promise(function (resolve, reject) {
+      connPromise.then(function () {
+        query.run(conn).then(resolve, reject);
+      });
+    });
+  };
+```
+
+The initial `queueQueryRun` implementation of `pool.runQuery`, for queries made
+(ie. in requests) before the connection is established and the database is
+ensured, returns a promise that will resolve as part of a callback added to
+the post-connection-and-initialization promise chain.
+
+Hopefully, in
+[a future version of the RethinkDB driver][rethinkdb#3771 comment],
+this complex shuffle for queueing queries will not be necessary, and will be
+able to be safely removed.
+
+[rethinkdb#3771 comment]: https://github.com/rethinkdb/rethinkdb/issues/3771#issuecomment-107127070
 
 ## Handling real-time connections on the server: socket.js
 
