@@ -182,9 +182,7 @@ trap exit SIGTERM SIGKILL
 trap "kill 0" EXIT
 ```
 
-### Clause-by-clause breakdown
-
-#### Getting (or faking) the dyno number
+### Getting (or faking) the dyno number
 
 ```bash
 DYNO=${DYNO##*.}
@@ -199,7 +197,7 @@ RethinkDB cluster node to connect to.
 
 [dyno vars]: https://devcenter.heroku.com/articles/dynos#local-environment-variables
 
-#### Listifying the internal IP addresses
+### Listifying the internal IP addresses
 
 ```bash
 ips=($COMPOSE_RETHINKDB_INTERNAL_IPS)
@@ -212,7 +210,7 @@ IP array.
 
 [Bash arrays]: http://tldp.org/LDP/abs/html/arrays.html
 
-#### Saving the SSH identity to a temporary file
+### Saving the SSH identity to a temporary file
 
 ```bash
 identity=$(mktemp)
@@ -227,7 +225,7 @@ environment) earlier into a temporary file (due to a
 [so-101900]: http://unix.stackexchange.com/questions/101900
 [process substitution]: http://www.tldp.org/LDP/abs/html/process-sub.html
 
-#### The SSH command parameters (line 1)
+### The SSH command parameters (line 1)
 
 ```bash
 ssh -NT compose@$COMPOSE_SSH_PUBLIC_HOSTNAME -p $COMPOSE_SSH_PUBLIC_PORT \
@@ -238,7 +236,7 @@ access your RethinkDB nodes through, while **N**ot running a command or
 allocating a **T**erminal as the SSH client normally would (since we only want
 to create the tunnel).
 
-#### The SSH command parameters (line 2)
+### The SSH command parameters (line 2)
 
 ```bash
   -o StrictHostKeyChecking=no -o LogLevel=error \
@@ -248,7 +246,7 @@ This tells the SSH client not to throw an error on encountering the remote
 server for the first time and not having anybody available to approve it,
 and to not print a warning that it's trusting this remote server.
 
-#### The SSH command parameters (line 3)
+### The SSH command parameters (line 3)
 
 ```bash
   -i $identity \
@@ -257,7 +255,7 @@ and to not print a warning that it's trusting this remote server.
 This tells the SSH client to use our configured SSH key as its identity to
 connect to the remote server.
 
-#### The SSH command parameters (line 4)
+### The SSH command parameters (line 4)
 
 ```bash
   -L 127.0.0.1:28015:${ips[$((DYNO % nodes))]}:28015 \
@@ -277,7 +275,7 @@ node, and that odd-numbered nodes will connect to the other (or, if the dyno
 number is not specified, the connections to nodes should be roughly evenly
 distributed at random).
 
-#### The SSH command parameters (line 5)
+### The SSH command parameters (line 5)
 
 ```bash
   -fo ExitOnForwardFailure=yes
@@ -289,7 +287,7 @@ we run our next task (the Node.JS server script).
 
 [ExitOnForwardFailure]: http://stackoverflow.com/a/12868885/34799
 
-#### Running the Node server
+### Running the Node server
 
 ```bash
 node server.js & wait %%
@@ -301,7 +299,7 @@ own (in other words, if the server doesn't crash).
 
 [signals]: http://unix.stackexchange.com/questions/146756/forward-sigterm-to-child-in-bash
 
-#### Configuring traps
+### Configuring traps
 
 ```bash
 trap exit SIGTERM SIGKILL
