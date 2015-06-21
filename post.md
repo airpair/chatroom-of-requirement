@@ -164,11 +164,16 @@ DYNO=${DYNO##*.}
 DYNO=${DYNO:-$RANDOM}
 
 ips=($COMPOSE_RETHINKDB_INTERNAL_IPS)
-nodes=${ips[@]}
+nodes=${#ips[@]}
+
+identity=$(mktemp)
+echo "$COMPOSE_SSH_KEY" >$identity
 
 ssh -NT compose@$COMPOSE_SSH_PUBLIC_HOSTNAME -p $COMPOSE_SSH_PUBLIC_PORT \
-  -i <(echo "$COMPOSE_SSH_KEY") \
-  -L 127.0.0.1:28015:${ips[$((DYNO % nodes))]}:28015 &
+  -o StrictHostKeyChecking=no -o LogLevel=error \
+  -i $identity \
+  -L 127.0.0.1:28015:${ips[$((DYNO % nodes))]}:28015 \
+  -fo ExitOnForwardFailure=yes
 
 node server.js & wait %%
 
@@ -197,7 +202,7 @@ RethinkDB cluster node to connect to.
 
 ```bash
 ips=($COMPOSE_RETHINKDB_INTERNAL_IPS)
-nodes=${ips[@]}
+nodes=${#ips[@]}
 ```
 
 This converts the `COMPOSE_INTERNAL_IPS` variable into an [array][Bash arrays]
@@ -205,6 +210,21 @@ that can be used by Bash, and saves the number of nodes as the length of the
 IP array.
 
 [Bash arrays]: http://tldp.org/LDP/abs/html/arrays.html
+
+#### Saving the SSH identity to a temporary file
+
+```bash
+identity=$(mktemp)
+echo "$COMPOSE_SSH_KEY" >$identity
+```
+
+This saves the SSH key we added to our deployment (and our app's config
+environment) earlier into a temporary file (due to a
+[weird SSH behavior][so-101900] that makes it impossible to use
+[process substitution][] with `ssh`).
+
+[so-101900]: http://unix.stackexchange.com/questions/101900
+[process substitution]: http://www.tldp.org/LDP/abs/html/process-sub.html
 
 #### The SSH command parameters (line 1)
 
@@ -220,18 +240,26 @@ to create the tunnel).
 #### The SSH command parameters (line 2)
 
 ```bash
-  -i <(echo "$COMPOSE_SSH_KEY") \
+  -o StrictHostKeyChecking=no -o LogLevel=error \
 ```
 
-This tells SSH to use (via [process substitution][]) the SSH key we added to
-our deployment, and our app's config environment, earlier.
-
-[process substitution]: http://www.tldp.org/LDP/abs/html/process-sub.html
+This tells the SSH client not to throw an error on encountering the remote
+server for the first time and not having anybody available to approve it,
+and to not print a warning that it's trusting this remote server.
 
 #### The SSH command parameters (line 3)
 
 ```bash
-  -L 127.0.0.1:28015:${ips[$((DYNO % nodes))]}:28015 &
+  -i $identity \
+```
+
+This tells the SSH client to use our configured SSH key as its identity to
+connect to the remote server.
+
+#### The SSH command parameters (line 4)
+
+```bash
+  -L 127.0.0.1:28015:${ips[$((DYNO % nodes))]}:28015 \
 ```
 
 This tells the SSH client to open a tunnel to the **L**ocal host, specifically
@@ -248,8 +276,19 @@ node, and that odd-numbered nodes will connect to the other (or, if the dyno
 number is not specified, the connections to nodes should be roughly evenly
 distributed at random).
 
-The `&` at the end tells Bash to run this tunnel in the background, as we run
-our next task: our Node.JS server script.
+#### The SSH command parameters (line 5)
+
+```bash
+  -fo ExitOnForwardFailure=yes
+```
+
+This tells the SSH client to,
+[after establishing the tunnel][ExitOnForwardFailure], go to the background as
+we run our next task (the Node.JS server script).
+
+[ExitOnForwardFailure]: http://stackoverflow.com/a/12868885/34799
+
+#### Running the Node server
 
 ```bash
 node server.js & wait %%
@@ -260,6 +299,8 @@ script can handle [signals][] in the event that the server does not exit on its
 own (in other words, if the server doesn't crash).
 
 [signals]: http://unix.stackexchange.com/questions/146756/forward-sigterm-to-child-in-bash
+
+#### Configuring traps
 
 ```bash
 trap exit SIGTERM SIGKILL
@@ -348,7 +389,7 @@ var r = require('rethinkdb');
 var endex = require('endex');
 var Promise = require('bluebird');
 
-module.exports = function poolCtor(cfg) {
+module.exports = function poolCtor() {
   var pool = {};
   var serverReportError = console.error.bind(console);
 
@@ -358,10 +399,10 @@ module.exports = function poolCtor(cfg) {
     return query.run(conn);
   }
 
-  var connPromise = r.connect(cfg.rethinkdb).then(function(connection) {
+  var connPromise = r.connect().then(function(connection) {
     conn = connection;
     pool.runQuery = runQueryNormally;
-    return endex(r).db(cfg.rethinkdb && cfg.rethinkdb.db || 'chatror')
+    return endex(r).db('chatror')
       .table('messages')
         .index('room')
         .index('sent')
@@ -396,7 +437,7 @@ var r = require('rethinkdb');
 
 var BACKLOG_LIMIT = 100;
 
-function socketAppCtor(cfg, pool) { return function socketApp(socket) {
+function socketAppCtor(pool) { return function socketApp(socket) {
 
   function reportError(err){
     socket.write({
@@ -531,18 +572,16 @@ html
     link(rel="stylesheet",href="https://cdnjs.cloudflare.com/ajax/libs/normalize/3.0.3/normalize.min.css")
     link(rel="stylesheet", href="/layout.css")
   body
-    #sidebar.sidebar
-    #chat.chat
-      #room.topper
-        input#rrominput
-      #board
-        #messages
-      form#entrybox
-        input#nameinput(value="Anonymous")
-        input#msginput
-        button(type="submit") Send
-    script(src="/primus/primus.js")
-    script(src="/client.js")
+    header
+      input#roominput(placeholder="Your room name here")
+    #board
+      #messages
+    form#entrybox
+      input#nameinput(value="Anonymous")
+      input#msginput
+      button(type="submit") Send
+  script(src="/primus/primus.js")
+  script(src="/client.js")
 ```
 
 (TODO: describe template)
@@ -554,15 +593,9 @@ html {height: 100%;}
 body {
   height: 100%;
   display: flex;
-  flex-flow: row;
-}
-#sidebar {width: 220px;}
-#chat {
-  flex: 1;
-  display: flex;
   flex-flow: column;
 }
-#room {
+header {
   flex: none;
   display: flex;
   flex-flow: row;
