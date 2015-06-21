@@ -155,6 +155,41 @@ its GitHub repo at https://github.com/stuartpb/chatroom-of-requirement and
 follow along by inspecting the checked-out files. Also, the word "indubitably"
 is not supposed to appear in the published version of this article.
 
+## What our app will look like
+
+The app we're constructing presents a simple chat interface with four elements:
+
+- A freeform room name, which all messages are associated with
+- A scroll of messages that have been sent associated with the room name
+- A username to associate sent messages with
+- A field to compose and send messages from
+
+I'm titling it the Chatroom of Requirement, after the [Room of Requirement][]
+in the [Harry Potter][] books, which magically transforms into whatever room
+you need it to be just by thinking of it.
+
+[Room of Requirement]: http://harrypotter.wikia.com/wiki/Room_of_Requirement
+[Harry Potter]: http://harrypotter.wikia.com/wiki/Main_Page
+
+Of course, this design is far from a comprehensive chat client: it's very
+sparingly styled, and it lacks any kind of anti-spam, moderation,
+authentication or ownership mechanisms (which all sufficiently complex chat
+services [eventually grow to need][IRC]). However, this is sufficiently useful
+for private use, where any user who knows of the server can be trusted 
+[(much like the Room of Requirement itself)][Protection]. This minimal design
+also helps keep the amount of code not necessary to demonstrate what's needed
+to implement a real-time chat app with these technologies to a minimum.
+
+[IRC]: https://en.wikipedia.org/wiki/Internet_Relay_Chat_services
+[Protection]: http://harrypotter.wikia.com/wiki/Room_of_Requirement#Protection
+
+Introducing the extended features one may wish for in a more full-featured chat
+application is left as an exercise for the reader: I recommend looking into [Passwordless][] and the other tutorials from [RethinkDB's documentation][]
+for inspiration and guidance as to where and how to proceed.
+
+[Passwordless]: https://passwordless.net/
+[RethinkDB's documentation]: http://rethinkdb.com/docs/
+
 ## Our app's overall entrypoint: tunnel-and-serve.sh
 
 Because Compose provides access to the RethinkDB servers only through SSH
@@ -358,41 +393,6 @@ The first four files are for running our app's back-end server, while the last
 three files define our app's front-end client. There's nothing saying you
 *have* to lay an app out like this, but it allows for a relatively neat base
 of separated concerns, on which to build upon as the app's complexity grows.
-
-## What our app will look like
-
-The app we're constructing presents a simple chat interface with four elements:
-
-- A freeform room name, which all messages are associated with
-- A scroll of messages that have been sent associated with the room name
-- A username to associate sent messages with
-- A field to compose and send messages from
-
-I'm titling it the Chatroom of Requirement, after the [Room of Requirement][]
-in the [Harry Potter][] books, which magically transforms into whatever room
-you need it to be just by thinking of it.
-
-[Room of Requirement]: http://harrypotter.wikia.com/wiki/Room_of_Requirement
-[Harry Potter]: http://harrypotter.wikia.com/wiki/Main_Page
-
-Of course, this design is far from a comprehensive chat client: it's very
-sparingly styled, and it lacks any kind of anti-spam, moderation,
-authentication or ownership mechanisms (which all sufficiently complex chat
-services [eventually grow to need][IRC]). However, this is sufficiently useful
-for private use, where any user who knows of the server can be trusted 
-[(much like the Room of Requirement itself)][Protection]. This minimal design
-also helps keep the amount of code not necessary to demonstrate what's needed
-to implement a real-time chat app with these technologies to a minimum.
-
-[IRC]: https://en.wikipedia.org/wiki/Internet_Relay_Chat_services
-[Protection]: http://harrypotter.wikia.com/wiki/Room_of_Requirement#Protection
-
-Introducing the extended features one may wish for in a more full-featured chat
-application is left as an exercise for the reader: I recommend looking into [Passwordless][] and the other tutorials from [RethinkDB's documentation][]
-for inspiration and guidance as to where and how to proceed.
-
-[Passwordless]: https://passwordless.net/
-[RethinkDB's documentation]: http://rethinkdb.com/docs/
 
 ## The Node server's entrypoint: server.js
 
