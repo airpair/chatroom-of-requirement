@@ -1,5 +1,3 @@
-# The Chatroom of Requirement: Building and Deploying A Real-Time Chat App
-
 Web developers in 2015 find themselves with an embarrasment of riches in
 open-source technologies for developing real-time apps:
 
@@ -651,11 +649,11 @@ function deliverMessage(message){
   messageAuthor.className = 'msg-author';
   messageAuthor.textContent = message.author;
   messageCard.appendChild(messageAuthor);
+  messageCard.appendChild(document.createTextNode(' '));
   var messageBody = document.createElement('span');
   messageBody.className = 'msg-body';
   messageBody.textContent = message.body;
   messageCard.appendChild(messageBody);
-  messageCard.appendChild(document.createTextNode(' '));
 
   var follow = messageArea.scrollHeight ==
     messageArea.scrollTop + messageArea.clientHeight;
@@ -680,6 +678,7 @@ roomInput.addEventListener('input', function setAdHocFilter() {
 msgForm.addEventListener('submit', function sendMessage(evt){
   createMessage({
     body: msgInput.value,
+    room: roomInput.value,
     author: nameInput.value
   });
   msgInput.value = '';
@@ -694,6 +693,8 @@ socket.on("data", function(data) {
     console.error('Unrecognized message type', data);
   }
 });
+
+joinRoom('');
 ```
 
 The Primus client establishes a connection to the server using a variety of
