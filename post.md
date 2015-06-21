@@ -178,7 +178,7 @@ services [eventually grow to need][IRC]). However, this is sufficiently useful
 for private use, where any user who knows of the server can be trusted 
 [(much like the Room of Requirement itself)][Protection]. This minimal design
 also helps keep the amount of code not necessary to demonstrate what's needed
-to implement a real-time chat app with these technologies to a minimum.
+to implement a real-time app with these technologies to a minimum.
 
 [IRC]: https://en.wikipedia.org/wiki/Internet_Relay_Chat_services
 [Protection]: http://harrypotter.wikia.com/wiki/Room_of_Requirement#Protection
@@ -448,13 +448,19 @@ the constructor function defined in `http.js`, listening on the port defined
 by the `PORT` environment variable (used by Heroku), and on the interface
 defined by the `IP` variable (used in conjunction with the `PORT` variable by
 Cloud9's "server preview" functionality). If no `PORT` is defined, we default
-to port 5000 (a commonly-used port for previewing servers in development), and if no `IP` variable is defined, we use `0.0.0.0` to listen on all available network interfaces (as is the default when the second argument to `httpServer.listen`
-is not defined).
+to port 5000 (a commonly-used port for previewing servers in development), and
+if no `IP` variable is defined, we use `0.0.0.0` to listen on all available
+network interfaces (as is the default when the second argument to
+`httpServer.listen` is not defined).
 
 Then, we pass our newly-created [Node HTTP server][] to the Primus constructor,
-telling it to use `engine.io` as its 
+telling it to use `engine.io` as its real-time implementation (the
+"transformer", in Primus's quirky [Hasbro-centric][TFWiki] nomenclature),
+rather than the default of `ws` (which breaks if the client cannot make a
+WebSocket connection).
 
 [Node HTTP server]: https://nodejs.org/api/http.html#http_class_http_server
+[TFWiki]: http://tfwiki.net/wiki/Main_Page
 
 Ideally, it would be possible to handle all of this inside our HTTP app
 constructor, including engine.io/Primus's handlers as middleware, but, due to
