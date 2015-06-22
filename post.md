@@ -1016,7 +1016,29 @@ header {
 .msg-author {font-weight: bold;}
 ```
 
-This uses Flexbox, indubitably.
+Our style sheet lays out each element using [Flexbox][]. Containers that list
+their contents from left to right use `flex-flow: row`, while containers that
+list their contents from top to bottom are specified with `flex-flow: column`.
+Items with `flex: 1` grow to fit the area available to them, while items with
+`flex: none` will neither grow nor shrink.
+
+[Flexbox]: https://css-tricks.com/snippets/css/a-guide-to-flexbox/
+
+The `#board` element has a `justify-content: flex-end` rule so that the
+`#messages` child element will stick to the bottom of the main chat pane, while
+the `#messages` element has an `overflow-y: auto` rule to allow it to scroll
+when there are more messages than can be displayed on a single screen.
+
+What this CSS ends up giving us, when applied to the HTML we defined above, is
+a full-window chat screen, with a single long text input going across the top
+for the room name, and a three-item form along the bottom, with the message
+composition input taking up all remaining space between the username input (of
+fixed width) and the "Send" button.
+
+Flexbox is a *wonderful* tool in front-end styling for layout: this is
+undoubtedly some of the cleanest layout CSS I've ever written, with none of
+the `float: right`, `clear: all`, fixed negative margin and other hacks that
+I traditionally would have had to use to get this layout.
 
 ## Writing our client's code: static/client.js
 
