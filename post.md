@@ -9,10 +9,10 @@ open-source technologies for developing real-time apps:
   waiting on I/O.
 - [engine.io][] allows developers to use WebSockets for real-time code, while
   still working through simpler mechanisms if the upgrade to WebSockets fails.
-- [Primus][] allows developers to code against a number of real-time libraries
-  (such as engine.io) using one simple WebSocket-like model, without having to
-  worry about potential differences between implementations in terms of
-  low-level details like reconnection.
+- [Primus][] provides a simple allows developers to code against a number of
+  real-time libraries (such as engine.io) using a single ordinary
+  WebSocket-like model, without having to worry about potential differences
+  between implementations in terms of low-level details like reconnection.
 
 [RethinkDB]: http://rethinkdb.com/
 [changefeeds]: http://rethinkdb.com/docs/changefeeds/javascript/
@@ -152,8 +152,7 @@ going to list the contents of each file (or the commands involved in creating
 them) here, which you are free to copy and paste to recreate the project from
 scratch; however, you may find it easier to clone the finished project from
 its GitHub repo at https://github.com/stuartpb/chatroom-of-requirement and
-follow along by inspecting the checked-out files. Also, the word "indubitably"
-is not supposed to appear in the published version of this article.
+follow along by inspecting the checked-out files.
 
 ## What our app will look like
 
@@ -859,7 +858,7 @@ within a callback that takes the `pool` constructed by `./pool.js` (like
 the constructor in `./socket.js` does), even though we don't actually use it
 anywhere in the HTTP server as written.
 
-```javascript
+```javascript,linenums=true
 var express = require('express');
 
 function appCtor(pool) {
@@ -906,7 +905,7 @@ submission.
 This Jade template defines the single page of our app, which is rendered and
 served to visitors when they visit the app in their browser.
 
-```jade
+```jade,linenums=true
 doctype
 html
   head
@@ -986,7 +985,12 @@ client library to make our real-time connection to the server.
 
 ## Laying out our client's UI: static/layout.css
 
-```css
+Our style sheet consists mostly of rules to lay out each element using
+[Flexbox][], with only a few non-Flexbox rules:
+
+[Flexbox]: https://css-tricks.com/snippets/css/a-guide-to-flexbox/
+
+```css,linenums=true
 html {height: 100%;}
 body {
   height: 100%;
@@ -1016,13 +1020,14 @@ header {
 .msg-author {font-weight: bold;}
 ```
 
-Our style sheet lays out each element using [Flexbox][]. Containers that list
-their contents from left to right use `flex-flow: row`, while containers that
-list their contents from top to bottom are specified with `flex-flow: column`.
-Items with `flex: 1` grow to fit the area available to them, while items with
-`flex: none` will neither grow nor shrink.
+The `html` and `body` elements are set to 100% height so that the page content
+will span the entire height of the window. Other than the fixed size of the
+`#nameinput` input, all other element sizing and positioning is handled with
+`flex` rules.
 
-[Flexbox]: https://css-tricks.com/snippets/css/a-guide-to-flexbox/
+Containers that list their contents from left to right use `flex-flow: row`,
+while containers that list their contents from top to bottom are specified with `flex-flow: column`. Items with `flex: 1` grow to fit the area available to
+them, while items with `flex: none` will neither grow nor shrink.
 
 The `#board` element has a `justify-content: flex-end` rule so that the
 `#messages` child element will stick to the bottom of the main chat pane, while
@@ -1042,7 +1047,10 @@ I traditionally would have had to use to get this layout.
 
 ## Writing our client's code: static/client.js
 
-```javascript
+Our `client.js` handles all the front-end functionality of our client, using
+the Primus client library that is included ahead of it in `views/index.jade`:
+
+```javascript,linenums=true
 /* global Primus */
 
 var socket = new Primus();
@@ -1111,15 +1119,163 @@ socket.on("data", function(data) {
 joinRoom('');
 ```
 
-The Primus client establishes a connection to the server using a variety of
-mechanisms upgraded as support is detected by engine.io, indubitably.
+### Establishing the real-time Primus/engine.io connection
 
-We get elements and hook them up to events, indubitably.
+```javascript
+/* global Primus */
+
+var socket = new Primus();
+```
+
+The `/* global Primus */` comment explains to linters like [JSHint][] (as used
+in the Cloud9 editor) that Primus is defined in an external file that is
+executed before this script.
+
+[JSHint]: http://jshint.com/
+
+Calling `new Primus()` establishes a connection to the server (the location of
+which is determined by Primus based on the page location, by default) using
+`engine.io` (as we specified when we initialized Primus on the server).
+
+`engine.io` starts by connecting to the server using simple mechanisms like
+`XMLHttpRequest` [long polling][], then trying to upgrade to more robust
+real-time communication strategies that it tests on the side (as described
+[in the engine.io readme][engine.io goals]).
+
+[Long polling]: https://en.wikipedia.org/wiki/Push_technology#Long_polling
+[engine.io goals]: https://github.com/Automattic/engine.io#goals
+
+### Sending events to the server
+
+```javascript
+function joinRoom(roomName) {
+  return socket.write({type:'joinRoom', room: roomName});
+}
+
+function createMessage(message) {
+  return socket.write({type:'createMessage', message: message});
+}
+```
+
+These functions are simple wrappers that are called by the user input handlers
+defined below to send our client events to the server. They are similar to the
+`deliverMessage` function defined in the server's `socket.js`.
+
+### Displaying messages from the server
+
+```javascript
+var messageArea = document.getElementById('messages');
+
+function deliverMessage(message){
+  var messageCard = document.createElement('div');
+  var messageAuthor = document.createElement('span');
+  messageAuthor.className = 'msg-author';
+  messageAuthor.textContent = message.author;
+  messageCard.appendChild(messageAuthor);
+  messageCard.appendChild(document.createTextNode(' '));
+  var messageBody = document.createElement('span');
+  messageBody.className = 'msg-body';
+  messageBody.textContent = message.body;
+  messageCard.appendChild(messageBody);
+
+  var follow = messageArea.scrollHeight ==
+    messageArea.scrollTop + messageArea.clientHeight;
+  messageArea.appendChild(messageCard);
+  if (follow) messageArea.scrollTop = messageArea.scrollHeight;
+}
+```
+
+This function creates HTML elements for delivered messages and inserts them
+into the message area of the document. Before inserting the message, it checks
+to see if the message area is scrolled to the bottom, and if it is, it scrolls
+the message area down to the new bottom after appending the new message (so
+that users can follow the conversation without having to scroll the message
+log down every time a new message comes in).
+
+### Handling user input
+
+```javascript
+var roomInput = document.getElementById('roominput');
+var msgForm = document.getElementById('entrybox');
+var msgInput = document.getElementById('msginput');
+var nameInput = document.getElementById('nameinput');
+
+roomInput.addEventListener('input', function setRoomName() {
+  var card = messageArea.lastChild;
+  while (card) {
+    messageArea.removeChild(card);
+    card = messageArea.lastChild;
+  }
+  joinRoom(roomInput.value);
+});
+
+msgForm.addEventListener('submit', function sendMessage(evt){
+  createMessage({
+    body: msgInput.value,
+    room: roomInput.value,
+    author: nameInput.value
+  });
+  msgInput.value = '';
+  return evt.preventDefault();
+});
+```
+
+This code adds an event listener to the room name input that joins the room
+defined by the new value of the input every time that value changes (discarding
+any displayed messages for the previous room).
+
+It also adds an event listener for when the message form is submitted (ie. when
+the user clicks the "Send" button or hits the Enter key in the message
+composition input) that sends their composed message to the server, then
+inhibits the browser's built-in form submission with `evt.preventDefault()`.
+
+### Handling events from the server
+
+```javascript
+socket.on("data", function(data) {
+  if (data.type == 'error') return console.error(data);
+  else if (data.type == 'deliverMessage') {
+    return deliverMessage(data.message);
+  } else {
+    console.error('Unrecognized message type', data);
+  }
+});
+```
+
+This code handles events that come from the server - specifically, objects with
+a `deliverMessage` type, which it hands off to the `deliverMessage` function
+defined above, and objects with an `error` type, which it logs to the console
+(as it does with any other, unrecognized objects).
+
+### Loading an initial state
+
+```javascript
+joinRoom('');
+```
+
+This sets the app up to start in a room with a blank name (the "lobby", of
+sorts), the same room it will join if the room name is entered and then
+cleared.
 
 ## Conclusion
+
+There's definitely room for improvement in this example app: the eventing model
+used in the client-server communication could be simplified and abstracted into
+its own module, and some manner of proper validation could be put into place to
+prevent clients from jamming the server with invalid messages.
+
+This room for improvement is by design: the purpose of this demonstration is to
+inspire developers to come up with their own mechanisms to layer on top of
+these primitives, to remix and refactor, to bolt on, and sand off.
 
 Using the power of RethinkDB, you can go on to extend this clasic chat model to
 use more complex queries: in fact, that's the notion we're working on to create
 a next-generation chat solution with [DingRoll][].
 
 [DingRoll]: https://dingroll.com/
+
+My hope is that you've found something enlightening in this, or at least
+informative. Let me know your thoughs on Twitter [@stuartpb][], or in the
+comments.
+
+[@stuartpb]: https://twitter.com/stuartpb
