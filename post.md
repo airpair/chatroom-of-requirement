@@ -364,14 +364,13 @@ dependencies (installing them locally in the process):
 
 ```
 $ npm init
-$ npm install --save engine.io primus rethinkdb endex express jade bluebird
+$ npm install --save engine.io primus rethinkdb endex express jade
 ```
 
-I described `rethinkdb`, `engine.io`, and `primus` above. Of the other four,
+I described `rethinkdb`, `engine.io`, and `primus` above. Of the other three,
 `express` is used to simplify writing the plain HTTP routes of our app,
-`jade` is used for simplifying our HTML syntax, `endex` is used for
-simplifying our database initialization, and `bluebird` is used for
-constructing our own async promises.
+`jade` is used for simplifying our HTML syntax, and `endex` is used for
+simplifying our database initialization.
 
 (Note that you may have to specify `rethinkdb@2.0.0` in the `npm install`
 command arguments, due to
@@ -477,10 +476,9 @@ defining these components in the form of Node modules which are otherwise
 encapsulated, not sharing a global state). It also handles the initialization
 of these assets, establishing the connections and ensuring they are ready.
 
-```javascript
+```javascript,linenums=true
 var r = require('rethinkdb');
 var endex = require('endex');
-var Promise = require('bluebird');
 
 module.exports = function poolCtor() {
   var pool = {};
@@ -504,10 +502,8 @@ module.exports = function poolCtor() {
   }).catch(serverReportError);
 
   pool.runQuery = function queueQueryRun(query) {
-    return new Promise(function (resolve, reject) {
-      connPromise.then(function () {
-        query.run(conn).then(resolve, reject);
-      });
+    return connPromise.then(function () {
+      return query.run(conn);
     });
   };
 
@@ -588,18 +584,17 @@ queueing implementation the pool was initialized with (defined below).
 
 ```javascript
   pool.runQuery = function queueQueryRun(query) {
-    return new Promise(function (resolve, reject) {
-      connPromise.then(function () {
-        query.run(conn).then(resolve, reject);
-      });
+    return connPromise.then(function () {
+      return query.run(conn);
     });
   };
+
 ```
 
 The initial `queueQueryRun` implementation of `pool.runQuery`, for queries made
 (ie. in requests) before the connection is established and the database is
-ensured, returns a promise that will resolve as part of a callback added to
-the post-connection-and-initialization promise chain.
+ensured, returns a promise that will resolve at the end of the
+post-connection-and-initialization promise chain.
 
 Hopefully, in
 [a future version of the RethinkDB driver][rethinkdb#3771 comment],
@@ -610,7 +605,11 @@ able to be safely removed.
 
 ## Handling real-time connections on the server: socket.js
 
-```javascript
+This script defines the handler for incoming socket connections provided by
+Primus, similarly to how an HTTP app defines a handler for HTTP requests
+provided by Node's `http` module.
+
+```javascript,linenums=true
 var r = require('rethinkdb');
 
 var BACKLOG_LIMIT = 100;
@@ -624,7 +623,7 @@ function socketAppCtor(pool) { return function socketApp(socket) {
     });
   }
 
- function createMessage(message) {
+  function createMessage(message) {
     return pool.runQuery(r.table('messages').insert({
       body: message.body,
       room: message.room,
@@ -698,13 +697,167 @@ function socketAppCtor(pool) { return function socketApp(socket) {
 module.exports = socketAppCtor;
 ```
 
-This script defines the handler for incoming socket connections provided by
-Primus, similarly to how an HTTP app defines a handler for HTTP requests
-provided by Node's `http` module.
+### The socket callback constructor and error handler
 
-When we get messages, we call functions, indubitably.
+```javascript
+var BACKLOG_LIMIT = 100;
+
+function socketAppCtor(pool) { return function socketApp(socket) {
+
+  function reportError(err){
+    socket.write({
+      type: 'error',
+      err: err
+    });
+  }
+```
+
+`BACKLOG_LIMIT` defines how many messages we will retrieve when a user connects
+to a room. As an opinionated variable, we place it outside of the rest of the
+code, so that it can be more easily found and adjusted without having to parse
+all of the script's functionality.
+
+This constructor function (the return value when calling
+`require('./socket.js')` in `server.js`) returns a callback function that gets
+attached to the Primus server's `'connection'` event (similarly to how a
+callback passed to `http.createServer`
+[gets attached to the server's `'request'` event][http.createServer]). This
+callback receives a socket object (referred to as a "[spark][]" in Primus's
+eccentric parlance), with which we can send objects to the connected client
+using the `socket.write` method, and can listen for objects sent from the
+client by adding a callback to the `socket.on('data')` event.
+
+[http.createServer]: https://nodejs.org/api/http.html#http_http_createserver_requestlistener
+[spark]: http://tfwiki.net/wiki/Spark
+
+We use this `socket.write` method to report any errors that happen on the
+server to the client (where they are printed to the browser console).
+
+### The server-side message receiver
+
+```javascript
+  function createMessage(message) {
+    return pool.runQuery(r.table('messages').insert({
+      body: message.body,
+      room: message.room,
+      author: message.author,
+      sent: r.now()
+    }));
+  }
+```
+
+This function is called any time a chat message is sent by the connected
+client, inserting it into the database, and broadcasting it to any connected
+clients subscribed to messages in the room (via their changefeed cursors).
+The sent time is recorded by the server when it receives the document, with
+`r.now()`.
+
+### The server-side message sender
+
+```javascript
+  function deliverMessage(message){
+    socket.write({
+      type: 'deliverMessage',
+      message: message
+    });
+  }
+```
+
+This function is called when a chat message is received from the database
+(both when initially joining a room and when new messages come in via
+changefeed for that room). It delivers the message to the client for the
+client-side JS to render as appropriate.
+
+### Getting existing messages and subscribing to new messages
+
+```javascript
+  var roomCursor = null;
+
+  function closeRoomCursor() {
+    if (roomCursor) {
+      roomCursor.close();
+      roomCursor = null;
+    }
+  }
+
+  function setRoomCursor(cursor) {
+    return roomCursor = cursor;
+  }
+
+  function joinRoom(roomName) {
+    closeRoomCursor();
+    pool.runQuery(
+      r.table('messages').orderBy({index:r.desc('sent')})
+        .filter(r.row('room').eq(roomName))
+        .limit(BACKLOG_LIMIT).orderBy('sent'))
+      .then(setRoomCursor)
+      .then(function(){
+        roomCursor.each(function (err, message) {
+          if (err) return reportError(err);
+          deliverMessage(message);
+        }, switchToChangefeed);
+      })
+      .catch(reportError);
+
+    function switchToChangefeed() {
+      closeRoomCursor();
+      pool.runQuery(r.table('messages')
+        .filter(r.row('room').eq(roomName)).changes())
+        .then(setRoomCursor)
+        .then(function(){
+          roomCursor.each(function (err, changes) {
+            if (err) return reportError(err);
+            deliverMessage(changes.new_val);
+          });
+        })
+        .catch(reportError);
+    }
+  }
+```
+
+The `joinRoom` function sends a query to the RethinkDB server to get the 100
+(`.limit(BACKLOG_LIMIT)` most recent (`.orderBy({index:r.desc('sent')})`)
+messages for the newly-joined room (`.filter(r.row('room').eq(roomName))`),
+in their original chronological order (`.orderBy('sent')`). The cursor for this
+query is saved (so it can be closed if the client switches to another room
+before all messages have been delivered), then each message is delivered to the
+client in order (in the first-argument callback to `roomCursor.each`).
+
+After any existing messages have been delivered,
+[the second callback to `roomCursor.each` is called][each], and the
+now-exhausted cursor is replaced an active [changefeed cursor][changes] for any
+new messages created for the room the client is joining.
+
+[each]: http://rethinkdb.com/api/javascript/each/
+[changes]: http://rethinkdb.com/api/javascript/changes/
+
+### The incoming object handler
+
+```javascript
+  socket.on('data', function(data) {
+    if (data.type == 'error') return console.error(data);
+    else if (data.type == 'createMessage') {
+      return createMessage(data.message);
+    } else if (data.type == 'joinRoom') {
+      return joinRoom(data.room);
+    } else {
+      return reportError('Unrecognized message type ' + data.type);
+    }
+  });
+```
+
+This callback listens to objects that are sent from the client and takes the
+appropriate action (using the functions described above) for the type of event
+denoted by the object's type (or, if the object's type is not recognized,
+responds to the client to inform them their submission was not understood).
 
 ## Providing our client to browsers: http.js
+
+This script provides a traditional Node.JS HTTP server app, which we use to
+serve mostly static assets. For extensibility's sake, the server is defined
+within a callback that takes the `pool` constructed by `./pool.js` (like
+the constructor in `./socket.js` does), even though we don't actually use it
+anywhere in the HTTP server as written.
 
 ```javascript
 var express = require('express');
@@ -727,10 +880,19 @@ function appCtor(pool) {
 module.exports = appCtor;
 ```
 
-This script provides a traditional Node.JS HTTP server app, which we use to
-serve mostly static assets.
+Most of these lines are pretty standard for Express, and can be understood
+pretty straightforwardly if you've read another tutorial about using Express,
+or [its API documentation][Express API]. The [`'trust proxy'`][trust proxy]
+option isn't strictly necessary for anything in this server as written, but it
+serves to keep its relevant values accurate in the event that we add any
+routes that use them later, as serving the app on Heroku means that the app
+will be behind a proxy in the form of the [Heroku router][].
 
-`trust proxy` is set because Heroku puts the app behind a proxy, indubitably.
+[Express API]: http://expressjs.com/api.html
+[trust proxy]: http://expressjs.com/api.html#trust.proxy.options.table
+[Heroku router]: https://devcenter.heroku.com/articles/http-routing
+
+### Why use Express for our HTTP server component?
 
 There are other ways we could serve these assets, particularly if we're going
 to keep them static; however, defining it as an Express server allows us to
@@ -740,6 +902,9 @@ real-time connections for actions that are better handled through form
 submission.
 
 ## Setting up our app's client HTML structure: views/index.jade
+
+This Jade template defines the single page of our app, which is rendered and
+served to visitors when they visit the app in their browser.
 
 ```jade
 doctype
@@ -762,7 +927,62 @@ html
   script(src="/client.js")
 ```
 
-This uses normalize.css and sets up a few elements, indubitably.
+### The head
+
+```jade
+doctype
+html
+  head
+    meta(charset="UTF-8")
+    title Chatroom of Requirement
+    link(rel="stylesheet",href="https://cdnjs.cloudflare.com/ajax/libs/normalize/3.0.3/normalize.min.css")
+    link(rel="stylesheet", href="/layout.css")
+```
+
+After the standard [HTML5 doctype and charset declaration][MDN HTML5 intro]
+(`doctype` and `meta(charset="UTF-8")` in Jade) and our page's title, we
+include [normalize.css][] via [CDNJS][], so we don't have to worry about
+dealing with cross-browser CSS quirks in our own CSS. Then, we include our own
+stylesheet (described below) to define the page's desired layout.
+
+[MDN HTML5 intro]: https://developer.mozilla.org/en-US/docs/Web/Guide/HTML/HTML5/Introduction_to_HTML5
+[normalize.css]: http://necolas.github.io/normalize.css/
+[CDNJS]: https://blog.cloudflare.com/cdnjs-the-fastest-javascript-repo-on-the-web/
+
+### The body structure
+
+```jade
+  body
+    header
+      input#roominput(placeholder="Your room name here")
+    #board
+      #messages
+    form#entrybox
+      input#nameinput(value="Anonymous")
+      input#msginput
+      button(type="submit") Send
+```
+
+This includes elements for all of the inputs we'll be using in our client code,
+as well as a `div` (`#messages`, which translates to
+`<div id="messages"></div>` in HTML) which will contain any messages we receive
+in our chat client. (The message container is contained inside another `div`
+so that [the contents of the message area can be scrolled][so-21515042].)
+
+[so-21515042]: http://stackoverflow.com/questions/21515042
+
+### The body scripts
+
+```jade
+  script(src="/primus/primus.js")
+  script(src="/client.js")
+```
+
+This requests the [Primus client library][] that Primus provides when wrapping
+the HTTP server, followed by our own client script which uses the Primus
+client library to make our real-time connection to the server.
+
+[Primus client library]: https://github.com/primus/primus#client-library
 
 ## Laying out our client's UI: static/layout.css
 
